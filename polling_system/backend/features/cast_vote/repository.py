@@ -76,9 +76,7 @@ def transact_cast_vote(
                             ":one": {"N": "1"},
                             ":open": {"S": "open"},
                         },
-                        "ConditionExpression": (
-                            "attribute_exists(pollId) AND #st = :open"
-                        ),
+                        "ConditionExpression": ("attribute_exists(pollId) AND #st = :open"),
                     }
                 },
             ]

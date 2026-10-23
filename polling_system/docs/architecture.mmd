@@ -1,0 +1,84 @@
+%% Online Polling System - AWS Serverless Architecture
+%% Export instructions:
+%% 1. Mermaid CLI: mmdc -i docs/architecture.mmd -o docs/architecture.png -b transparent -s 2
+%% 2. VS Code: Use Mermaid Preview or Mermaid Chart extension
+%% 3. Web: Copy into https://mermaid.live and export as PNG or SVG
+
+graph TB
+    subgraph ClientLayer ["Client & Delivery Layer"]
+        Browser["User Browser (React + TypeScript on Vite)"]
+        CF["Amazon CloudFront Distribution (OAC, HTTPS Only)"]
+        S3["Private S3 Bucket (Block Public Access)"]
+    end
+
+    subgraph AuthLayer ["Identity & Access Layer"]
+        Cognito["Amazon Cognito User Pool (Essentials Plan)"]
+        BrowserClient["Browser App Client (SRP Auth, No Secret)"]
+        TestClient["Acceptance Test Client (Admin Password Auth)"]
+    end
+
+    subgraph GatewayLayer ["API Gateway Layer"]
+        HttpApi["API Gateway HTTP API (ap-south-1)"]
+        JwtAuth["Native JWT Authorizer (Audience: Client IDs, Issuer: Cognito)"]
+        Throttle["Stage Throttling (Burst 200, Rate 100 req/s)"]
+    end
+
+    subgraph ComputeLayer ["Compute Layer (AWS Lambda arm64, Python 3.13)"]
+        CreatePollFn["Create Poll Function (POST /polls)"]
+        ListPollsFn["List Polls Function (GET /polls)"]
+        GetPollFn["Get Poll Function (GET /polls/{id})"]
+        CastVoteFn["Cast Vote Function (POST /polls/{id}/vote)"]
+        GetResultsFn["Get Results Function (GET /polls/{id}/results)"]
+        ClosePollFn["Close Poll Function (POST /polls/{id}/close)"]
+    end
+
+    subgraph StorageLayer ["Data Layer (Amazon DynamoDB on-demand)"]
+        PollsTable["Polls Table (PK: pollId)"]
+        PollsGSI["GSI: status-createdAt-index (PK: status, SK: createdAt)"]
+        VotesTable["Votes Table (PK: pollId, SK: userId)"]
+    end
+
+    subgraph ObservabilityLayer ["Observability Layer"]
+        CWLogs["Amazon CloudWatch Log Groups (14-Day Retention)"]
+    end
+
+    %% Client Delivery Flow
+    Browser -->|1. HTTPS Request for SPA| CF
+    CF -->|2. Origin Access Control| S3
+    S3 -->|3. SPA Assets HTML/JS/CSS| CF
+    CF -->|4. Response| Browser
+
+    %% Authentication Flow
+    Browser -->|5. SRP Sign In / Token Retrieval| Cognito
+    Cognito -.-> BrowserClient
+    Cognito -.-> TestClient
+
+    %% API Request Flow with JWT
+    Browser -->|6. API Call with Bearer ID Token| HttpApi
+    HttpApi -->|7. Verify Token Signature & Audience| JwtAuth
+    HttpApi -->|8. Apply Rate Limiting| Throttle
+
+    %% Route to Lambda
+    HttpApi -->|POST /polls| CreatePollFn
+    HttpApi -->|GET /polls| ListPollsFn
+    HttpApi -->|GET /polls/{id}| GetPollFn
+    HttpApi -->|POST /polls/{id}/vote| CastVoteFn
+    HttpApi -->|GET /polls/{id}/results| GetResultsFn
+    HttpApi -->|POST /polls/{id}/close| ClosePollFn
+
+    %% Lambda to Data Layer
+    CreatePollFn -->|PutItem| PollsTable
+    ListPollsFn -->|Query on GSI| PollsGSI
+    GetPollFn -->|GetItem| PollsTable
+    GetPollFn -->|GetItem user vote| VotesTable
+    GetResultsFn -->|GetItem counts| PollsTable
+    GetResultsFn -->|GetItem user choice| VotesTable
+    ClosePollFn -->|UpdateItem status=closed| PollsTable
+
+    %% Atomic Vote Transaction Flow
+    CastVoteFn -->|TransactWriteItems: 1. PutItem Votes, 2. UpdateItem Polls| StorageLayer
+    StorageLayer -->|Action 1: Condition attribute_not_exists| VotesTable
+    StorageLayer -->|Action 2: Increment counts & totalVotes| PollsTable
+
+    %% Observability
+    ComputeLayer -->|Structured JSON Logs| CWLogs

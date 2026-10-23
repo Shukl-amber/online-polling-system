@@ -24,10 +24,7 @@ def create_poll(request: CreatePollRequest, caller: CallerIdentity) -> dict[str,
     poll_id = str(uuid.uuid4())
     now = datetime.now(UTC).isoformat()
 
-    options = [
-        {"id": str(uuid.uuid4()), "text": text}
-        for text in request.options
-    ]
+    options = [{"id": str(uuid.uuid4()), "text": text} for text in request.options]
 
     counts = {opt["id"]: 0 for opt in options}
 

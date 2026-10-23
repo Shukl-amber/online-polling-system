@@ -37,7 +37,10 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         first_error = exc.errors()[0]
         message = first_error.get("msg", "Validation error")
         log_request(
-            request_id, "POST /polls", caller.user_id, "validation_error",
+            request_id,
+            "POST /polls",
+            caller.user_id,
+            "validation_error",
             {"message": message},
         )
         return bad_request("VALIDATION_ERROR", message)
@@ -45,7 +48,10 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     try:
         poll = create_poll(request, caller)
         log_request(
-            request_id, "POST /polls", caller.user_id, "created",
+            request_id,
+            "POST /polls",
+            caller.user_id,
+            "created",
             {"poll_id": poll["pollId"]},
         )
         return created(poll)
