@@ -1,0 +1,135 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Polling System - Hosting stack.
+  Private S3 bucket with CloudFront distribution using origin access control.
+
+Parameters:
+  ProjectPrefix:
+    Type: String
+    Default: polling-system
+    Description: Prefix for all resource names
+
+Resources:
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${ProjectPrefix}-frontend-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectPrefix
+
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowCloudFrontServicePrincipal
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${FrontendBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}"
+
+  OriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "${ProjectPrefix}-oac"
+        Description: OAC for polling system frontend bucket
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        PriceClass: PriceClass_All
+        HttpVersion: http2
+        Origins:
+          - Id: S3Origin
+            DomainName: !GetAtt FrontendBucket.RegionalDomainName
+            OriginAccessControlId: !Ref OriginAccessControl
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+            - GET
+            - HEAD
+          CachedMethods:
+            - GET
+            - HEAD
+          Compress: true
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 0
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 0
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectPrefix
+
+  # SSM Parameters
+  BucketNameParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /polling_system/frontend_bucket_name
+      Type: String
+      Value: !Ref FrontendBucket
+      Description: Frontend S3 bucket name
+
+  DistributionIdParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /polling_system/distribution_id
+      Type: String
+      Value: !Ref CloudFrontDistribution
+      Description: CloudFront distribution ID
+
+  CloudFrontDomainParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /polling_system/cloudfront_domain
+      Type: String
+      Value: !GetAtt CloudFrontDistribution.DomainName
+      Description: CloudFront distribution domain name
+
+Outputs:
+  BucketName:
+    Description: Frontend S3 bucket name
+    Value: !Ref FrontendBucket
+
+  DistributionId:
+    Description: CloudFront distribution ID
+    Value: !Ref CloudFrontDistribution
+
+  CloudFrontDomain:
+    Description: CloudFront domain name
+    Value: !GetAtt CloudFrontDistribution.DomainName
+
+  CloudFrontUrl:
+    Description: Full CloudFront URL
+    Value: !Sub "https://${CloudFrontDistribution.DomainName}"

@@ -1,0 +1,121 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Polling System - Authentication stack.
+  Creates a Cognito User Pool with two app clients:
+  one for the browser (SRP auth) and one for acceptance tests (admin auth).
+
+Parameters:
+  ProjectPrefix:
+    Type: String
+    Default: polling-system
+    Description: Prefix for all resource names
+
+Resources:
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub "${ProjectPrefix}-user-pool"
+      AutoVerifiedAttributes:
+        - email
+      UsernameAttributes:
+        - email
+      Schema:
+        - Name: email
+          Required: true
+          Mutable: true
+        - Name: name
+          Required: true
+          Mutable: true
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireUppercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+      UserPoolAddOns:
+        AdvancedSecurityMode: "OFF"
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: verified_email
+            Priority: 1
+
+  BrowserAppClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub "${ProjectPrefix}-browser-client"
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      PreventUserExistenceErrors: ENABLED
+      SupportedIdentityProviders:
+        - COGNITO
+      AllowedOAuthFlowsUserPoolClient: false
+
+  TestAppClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub "${ProjectPrefix}-test-client"
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_ADMIN_USER_PASSWORD_AUTH
+      PreventUserExistenceErrors: ENABLED
+      SupportedIdentityProviders:
+        - COGNITO
+      AllowedOAuthFlowsUserPoolClient: false
+
+  # SSM Parameters for cross-stack references
+  UserPoolIdParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/polling_system/user_pool_id"
+      Type: String
+      Value: !Ref UserPool
+      Description: Cognito User Pool ID
+
+  UserPoolArnParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/polling_system/user_pool_arn"
+      Type: String
+      Value: !GetAtt UserPool.Arn
+      Description: Cognito User Pool ARN
+
+  BrowserClientIdParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/polling_system/browser_client_id"
+      Type: String
+      Value: !Ref BrowserAppClient
+      Description: Browser app client ID for SRP auth
+
+  TestClientIdParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/polling_system/test_client_id"
+      Type: String
+      Value: !Ref TestAppClient
+      Description: Test app client ID for admin auth
+
+Outputs:
+  UserPoolId:
+    Description: Cognito User Pool ID
+    Value: !Ref UserPool
+
+  UserPoolArn:
+    Description: Cognito User Pool ARN
+    Value: !GetAtt UserPool.Arn
+
+  BrowserClientId:
+    Description: Browser app client ID
+    Value: !Ref BrowserAppClient
+
+  TestClientId:
+    Description: Test app client ID
+    Value: !Ref TestAppClient

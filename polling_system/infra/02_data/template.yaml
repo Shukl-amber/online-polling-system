@@ -1,0 +1,109 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Polling System - Data stack.
+  Creates DynamoDB tables for Polls and Votes with on-demand capacity.
+
+Parameters:
+  ProjectPrefix:
+    Type: String
+    Default: polling-system
+    Description: Prefix for all resource names
+
+Resources:
+  PollsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${ProjectPrefix}-polls"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pollId
+          AttributeType: S
+        - AttributeName: status
+          AttributeType: S
+        - AttributeName: createdAt
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pollId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: status-createdAt-index
+          KeySchema:
+            - AttributeName: status
+              KeyType: HASH
+            - AttributeName: createdAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectPrefix
+
+  VotesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${ProjectPrefix}-votes"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pollId
+          AttributeType: S
+        - AttributeName: userId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pollId
+          KeyType: HASH
+        - AttributeName: userId
+          KeyType: RANGE
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectPrefix
+
+  # SSM Parameters
+  PollsTableNameParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /polling_system/polls_table_name
+      Type: String
+      Value: !Ref PollsTable
+      Description: DynamoDB Polls table name
+
+  PollsTableArnParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /polling_system/polls_table_arn
+      Type: String
+      Value: !GetAtt PollsTable.Arn
+      Description: DynamoDB Polls table ARN
+
+  VotesTableNameParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /polling_system/votes_table_name
+      Type: String
+      Value: !Ref VotesTable
+      Description: DynamoDB Votes table name
+
+  VotesTableArnParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /polling_system/votes_table_arn
+      Type: String
+      Value: !GetAtt VotesTable.Arn
+      Description: DynamoDB Votes table ARN
+
+Outputs:
+  PollsTableName:
+    Description: Polls table name
+    Value: !Ref PollsTable
+
+  PollsTableArn:
+    Description: Polls table ARN
+    Value: !GetAtt PollsTable.Arn
+
+  VotesTableName:
+    Description: Votes table name
+    Value: !Ref VotesTable
+
+  VotesTableArn:
+    Description: Votes table ARN
+    Value: !GetAtt VotesTable.Arn

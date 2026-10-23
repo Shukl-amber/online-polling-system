@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.pytest_cache/
+.ruff_cache/
+venv/
+.venv/
+
+# Node
+node_modules/
+.pnp
+.pnp.js
+
+# Frontend build
+frontend/dist/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# AWS SAM
+.aws-sam/
+samconfig.toml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Test reports (generated)
+docs/test_report.md

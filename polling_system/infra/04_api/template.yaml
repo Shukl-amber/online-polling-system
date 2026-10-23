@@ -1,0 +1,273 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Polling System - API stack.
+  HTTP API with JWT authorizer and six Lambda functions.
+
+Parameters:
+  ProjectPrefix:
+    Type: String
+    Default: polling-system
+    Description: Prefix for all resource names
+
+Globals:
+  Function:
+    Runtime: python3.13
+    Architectures:
+      - arm64
+    MemorySize: 256
+    Timeout: 10
+    CodeUri: ../../backend
+    Environment:
+      Variables:
+        POLLS_TABLE: !Sub "{{resolve:ssm:/polling_system/polls_table_name}}"
+        VOTES_TABLE: !Sub "{{resolve:ssm:/polling_system/votes_table_name}}"
+
+Resources:
+  # ---------- HTTP API ----------
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: "$default"
+      Description: Polling System HTTP API
+      CorsConfiguration:
+        AllowOrigins:
+          - !Sub "https://{{resolve:ssm:/polling_system/cloudfront_domain}}"
+          - "http://localhost:5173"
+        AllowHeaders:
+          - Authorization
+          - Content-Type
+        AllowMethods:
+          - GET
+          - POST
+          - OPTIONS
+      Auth:
+        DefaultAuthorizer: CognitoJwtAuthorizer
+        Authorizers:
+          CognitoJwtAuthorizer:
+            AuthorizationScopes: []
+            IdentitySource: "$request.header.Authorization"
+            JwtConfiguration:
+              issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/{{resolve:ssm:/polling_system/user_pool_id}}"
+              audience:
+                - !Sub "{{resolve:ssm:/polling_system/browser_client_id}}"
+                - !Sub "{{resolve:ssm:/polling_system/test_client_id}}"
+      RouteSettings:
+        "POST /polls":
+          ThrottlingBurstLimit: 10
+          ThrottlingRateLimit: 5
+        "GET /polls":
+          ThrottlingBurstLimit: 20
+          ThrottlingRateLimit: 10
+        "GET /polls/{id}":
+          ThrottlingBurstLimit: 20
+          ThrottlingRateLimit: 10
+        "POST /polls/{id}/vote":
+          ThrottlingBurstLimit: 20
+          ThrottlingRateLimit: 10
+        "GET /polls/{id}/results":
+          ThrottlingBurstLimit: 20
+          ThrottlingRateLimit: 10
+        "POST /polls/{id}/close":
+          ThrottlingBurstLimit: 10
+          ThrottlingRateLimit: 5
+
+  # ---------- Lambda Functions ----------
+  CreatePollFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${ProjectPrefix}-create-poll"
+      Handler: features.create_poll.handler.handler
+      Description: Creates a new poll
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+              Resource: !Sub "{{resolve:ssm:/polling_system/polls_table_arn}}"
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /polls
+            Method: POST
+
+  ListPollsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${ProjectPrefix}-list-polls"
+      Handler: features.list_polls.handler.handler
+      Description: Lists open polls
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:Query
+              Resource:
+                - !Sub "{{resolve:ssm:/polling_system/polls_table_arn}}/index/status-createdAt-index"
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /polls
+            Method: GET
+
+  GetPollFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${ProjectPrefix}-get-poll"
+      Handler: features.get_poll.handler.handler
+      Description: Fetches a single poll with vote status
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+              Resource:
+                - !Sub "{{resolve:ssm:/polling_system/polls_table_arn}}"
+                - !Sub "{{resolve:ssm:/polling_system/votes_table_arn}}"
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /polls/{id}
+            Method: GET
+
+  CastVoteFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${ProjectPrefix}-cast-vote"
+      Handler: features.cast_vote.handler.handler
+      Description: Casts a vote in a poll
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+              Resource:
+                - !Sub "{{resolve:ssm:/polling_system/polls_table_arn}}"
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+              Resource:
+                - !Sub "{{resolve:ssm:/polling_system/votes_table_arn}}"
+            - Effect: Allow
+              Action:
+                - dynamodb:UpdateItem
+              Resource:
+                - !Sub "{{resolve:ssm:/polling_system/polls_table_arn}}"
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /polls/{id}/vote
+            Method: POST
+
+  GetResultsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${ProjectPrefix}-get-results"
+      Handler: features.get_results.handler.handler
+      Description: Fetches poll results with counts and percentages
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+              Resource:
+                - !Sub "{{resolve:ssm:/polling_system/polls_table_arn}}"
+                - !Sub "{{resolve:ssm:/polling_system/votes_table_arn}}"
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /polls/{id}/results
+            Method: GET
+
+  ClosePollFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${ProjectPrefix}-close-poll"
+      Handler: features.close_poll.handler.handler
+      Description: Closes a poll (creator only)
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:UpdateItem
+              Resource:
+                - !Sub "{{resolve:ssm:/polling_system/polls_table_arn}}"
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /polls/{id}/close
+            Method: POST
+
+  # ---------- Log Groups ----------
+  CreatePollLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${CreatePollFunction}"
+      RetentionInDays: 14
+
+  ListPollsLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${ListPollsFunction}"
+      RetentionInDays: 14
+
+  GetPollLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${GetPollFunction}"
+      RetentionInDays: 14
+
+  CastVoteLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${CastVoteFunction}"
+      RetentionInDays: 14
+
+  GetResultsLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${GetResultsFunction}"
+      RetentionInDays: 14
+
+  ClosePollLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${ClosePollFunction}"
+      RetentionInDays: 14
+
+  # ---------- SSM Parameters ----------
+  ApiUrlParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /polling_system/api_url
+      Type: String
+      Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+      Description: API Gateway HTTP API base URL
+
+Outputs:
+  ApiUrl:
+    Description: API Gateway endpoint URL
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+
+  HttpApiId:
+    Description: HTTP API ID
+    Value: !Ref HttpApi
