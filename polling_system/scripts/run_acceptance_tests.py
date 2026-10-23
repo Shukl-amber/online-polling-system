@@ -470,10 +470,21 @@ def main() -> None:
 
     ssm = boto3.client("ssm", region_name=args.region)
 
-    api_url = args.api_url or get_ssm_parameter(ssm, "/polling_system/api/base_url")
-    user_pool_id = args.user_pool_id or get_ssm_parameter(ssm, "/polling_system/auth/user_pool_id")
-    test_client_id = args.test_client_id or get_ssm_parameter(
-        ssm, "/polling_system/auth/test_client_id"
+    def get_fallback(*names: str) -> str | None:
+        for n in names:
+            val = get_ssm_parameter(ssm, n)
+            if val:
+                return val
+        return None
+
+    api_url = args.api_url or get_fallback(
+        "/polling_system/api_url", "/polling_system/api/base_url"
+    )
+    user_pool_id = args.user_pool_id or get_fallback(
+        "/polling_system/user_pool_id", "/polling_system/auth/user_pool_id"
+    )
+    test_client_id = args.test_client_id or get_fallback(
+        "/polling_system/test_client_id", "/polling_system/auth/test_client_id"
     )
 
     if not api_url or not user_pool_id or not test_client_id:

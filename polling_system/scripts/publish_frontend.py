@@ -138,9 +138,20 @@ def main() -> None:
     s3 = boto3.client("s3", region_name=region)
     cf = boto3.client("cloudfront")
 
-    bucket_name = args.bucket or get_ssm_parameter(ssm, "/polling_system/hosting/bucket_name")
-    distribution_id = args.distribution_id or get_ssm_parameter(
-        ssm, "/polling_system/hosting/distribution_id"
+    def get_fallback(*names: str) -> str | None:
+        for n in names:
+            val = get_ssm_parameter(ssm, n)
+            if val:
+                return val
+        return None
+
+    bucket_name = args.bucket or get_fallback(
+        "/polling_system/frontend_bucket_name",
+        "/polling_system/hosting/bucket_name",
+    )
+    distribution_id = args.distribution_id or get_fallback(
+        "/polling_system/distribution_id",
+        "/polling_system/hosting/distribution_id",
     )
 
     if not bucket_name:

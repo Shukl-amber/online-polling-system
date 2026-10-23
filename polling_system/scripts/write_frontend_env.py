@@ -60,10 +60,29 @@ def main() -> None:
 
     print(f"Reading parameters from SSM Parameter Store (region: {region})...")
 
-    user_pool_id = args.user_pool_id or get_ssm_parameter(ssm, "/polling_system/auth/user_pool_id")
-    client_id = args.client_id or get_ssm_parameter(ssm, "/polling_system/auth/browser_client_id")
-    api_url = args.api_url or get_ssm_parameter(ssm, "/polling_system/api/base_url")
-    cloudfront_domain = get_ssm_parameter(ssm, "/polling_system/hosting/cloudfront_domain")
+    def get_fallback(*names: str) -> str | None:
+        for n in names:
+            val = get_ssm_parameter(ssm, n)
+            if val:
+                return val
+        return None
+
+    user_pool_id = args.user_pool_id or get_fallback(
+        "/polling_system/user_pool_id",
+        "/polling_system/auth/user_pool_id",
+    )
+    client_id = args.client_id or get_fallback(
+        "/polling_system/browser_client_id",
+        "/polling_system/auth/browser_client_id",
+    )
+    api_url = args.api_url or get_fallback(
+        "/polling_system/api_url",
+        "/polling_system/api/base_url",
+    )
+    cloudfront_domain = get_fallback(
+        "/polling_system/cloudfront_domain",
+        "/polling_system/hosting/cloudfront_domain",
+    )
 
     missing = []
     if not user_pool_id:
