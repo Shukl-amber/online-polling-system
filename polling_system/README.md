@@ -73,12 +73,13 @@ Deploy the units in exact numerical order.
   cd ../..
   ```
 - **Expected Output**: CloudFormation stack `polling-system-auth` creates `AWS::Cognito::UserPool`, `AWS::Cognito::UserPoolClient` (x2), and publishes parameters to SSM:
-  - `/polling_system/auth/user_pool_id`
-  - `/polling_system/auth/browser_client_id`
-  - `/polling_system/auth/test_client_id`
+  - `/polling_system/user_pool_id`
+  - `/polling_system/user_pool_arn`
+  - `/polling_system/browser_client_id`
+  - `/polling_system/test_client_id`
 - **Verification**:
   ```bash
-  aws ssm get-parameters-by-path --path /polling_system/auth/
+  aws ssm get-parameters-by-path --path /polling_system/
   ```
 - **Teardown**:
   ```bash
@@ -99,13 +100,17 @@ Deploy the units in exact numerical order.
   cd ../..
   ```
 - **Expected Output**: Stack `polling-system-data` creates tables and publishes SSM parameters:
-  - `/polling_system/data/polls_table_name`
-  - `/polling_system/data/votes_table_name`
-  - `/polling_system/data/polls_table_arn`
-  - `/polling_system/data/votes_table_arn`
+  - `/polling_system/polls_table_name`
+  - `/polling_system/polls_table_arn`
+  - `/polling_system/votes_table_name`
+  - `/polling_system/votes_table_arn`
 - **Verification**:
   ```bash
-  aws dynamodb describe-table --table-name $(aws ssm get-parameter --name /polling_system/data/polls_table_name --query Parameter.Value --output text) --query "Table.TableStatus"
+  # PowerShell (Windows)
+  aws dynamodb describe-table --table-name (aws ssm get-parameter --name /polling_system/polls_table_name --query Parameter.Value --output text) --query "Table.TableStatus" --output text
+
+  # Bash / zsh
+  aws dynamodb describe-table --table-name $(aws ssm get-parameter --name /polling_system/polls_table_name --query Parameter.Value --output text) --query "Table.TableStatus" --output text
   ```
 - **Teardown**:
   ```bash
@@ -126,18 +131,23 @@ Deploy the units in exact numerical order.
   cd ../..
   ```
 - **Expected Output**: Stack `polling-system-hosting` outputs and publishes:
-  - `/polling_system/hosting/bucket_name`
-  - `/polling_system/hosting/distribution_id`
-  - `/polling_system/hosting/cloudfront_domain`
+  - `/polling_system/frontend_bucket_name`
+  - `/polling_system/distribution_id`
+  - `/polling_system/cloudfront_domain`
 - **Verification**:
   ```bash
-  aws ssm get-parameter --name /polling_system/hosting/cloudfront_domain --query Parameter.Value --output text
+  aws ssm get-parameter --name /polling_system/cloudfront_domain --query Parameter.Value --output text
   ```
 - **Teardown**:
   ```bash
-  # Must empty the S3 bucket first
-  BUCKET=$(aws ssm get-parameter --name /polling_system/hosting/bucket_name --query Parameter.Value --output text)
+  # PowerShell (Windows)
+  $BUCKET = aws ssm get-parameter --name /polling_system/frontend_bucket_name --query Parameter.Value --output text
   aws s3 rm s3://$BUCKET --recursive
+
+  # Bash
+  BUCKET=$(aws ssm get-parameter --name /polling_system/frontend_bucket_name --query Parameter.Value --output text)
+  aws s3 rm s3://$BUCKET --recursive
+
   sam delete --stack-name polling-system-hosting --no-prompts
   ```
 *Verified against: Amazon CloudFront Developer Guide (Origin Access Control & SPA Custom Error Pages, checked 23 October 2026).*
@@ -155,10 +165,14 @@ Deploy the units in exact numerical order.
   cd ../..
   ```
 - **Expected Output**: Stack `polling-system-api` outputs API URL and publishes:
-  - `/polling_system/api/base_url`
+  - `/polling_system/api_url`
 - **Verification**:
   ```bash
-  curl -i $(aws ssm get-parameter --name /polling_system/api/base_url --query Parameter.Value --output text)/polls
+  # PowerShell (Windows)
+  curl.exe -i "$((aws ssm get-parameter --name /polling_system/api_url --query Parameter.Value --output text))/polls"
+
+  # Bash
+  curl -i $(aws ssm get-parameter --name /polling_system/api_url --query Parameter.Value --output text)/polls
   # Should return HTTP 401 Unauthorized (proves JWT authorizer enforcement)
   ```
 - **Teardown**:
@@ -229,7 +243,7 @@ To guarantee zero ongoing costs, delete resources in exact reverse deployment or
 
 ```bash
 # Step 1: Empty and delete S3 bucket contents
-BUCKET=$(aws ssm get-parameter --name /polling_system/hosting/bucket_name --query Parameter.Value --output text)
+BUCKET=$(aws ssm get-parameter --name /polling_system/frontend_bucket_name --query Parameter.Value --output text)
 aws s3 rm s3://$BUCKET --recursive
 
 # Step 2: Delete Stacks in Reverse Order
@@ -250,7 +264,7 @@ Amazon Cognito User Pools default email sender is throttled at **50 emails per c
 1. Automated acceptance testing utilizes `scripts/run_acceptance_tests.py`, which leverages `admin_create_user` and `admin_set_user_password` via the test client to bypass email quotas.
 2. To pre-create demo users for live viva presentation without consuming email quota:
    ```bash
-   USER_POOL_ID=$(aws ssm get-parameter --name /polling_system/auth/user_pool_id --query Parameter.Value --output text)
+   USER_POOL_ID=$(aws ssm get-parameter --name /polling_system/user_pool_id --query Parameter.Value --output text)
    aws cognito-idp admin-create-user --user-pool-id $USER_POOL_ID --username demo@example.com --user-attributes Name=email,Value=demo@example.com Name=email_verified,Value=true Name=name,Value="Demo User" --message-action SUPPRESS
    aws cognito-idp admin-set-user-password --user-pool-id $USER_POOL_ID --username demo@example.com --password "DemoUser123!Safe" --permanent
    ```
